@@ -68,7 +68,8 @@ class SemanticKmeansClustering(ClusteringBase):
             if cluster_member.size <= targeted_sample_size:
                 sampled_index.update(cluster_member.tolist())
             else:
-                sampled_index.update(np.random.choice(cluster_member, size=len(cluster_member) * self._sampling_rate,
+                sampled_index.update(np.random.choice(cluster_member,
+                                                      size=int(len(cluster_member) * self._sampling_rate),
                                                       replace=False).tolist())
         return [ia for i, ia in enumerate(instructanswer_list) if i in sampled_index]
 
