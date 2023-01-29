@@ -6,7 +6,7 @@ from llmdq.config import FilterConfig
 from llmdq.struct import InstructAnswer
 from llmdq.scorer import RewardModelScorer, PerplexityScorer, ToxicityScorer, GibberishScorer, LengthScorer, ScorerPipeline
 from llmdq.scorefilter import FilterPipeline
-from llmdq.clustering import Dedup, SemanticClustering, ClusteringPipeline
+from llmdq.clustering import Dedup, SemanticKmeansClustering, ClusteringPipeline
 
 
 lg = logging.getLogger(__name__)
@@ -46,7 +46,9 @@ def llmdq_pipeline(data: List[InstructAnswer], config: FilterConfig, batch_size,
     clusteringpipe = ClusteringPipeline()
     clusteringpipe.add([
         Dedup(),
-        SemanticClustering()
+        SemanticKmeansClustering("facebook/contriever",
+                                 batch_size=batch_size,
+                                 device=f"cuda:{device}" if device >= 0 else "cpu")
     ])
     clustered_data = clusteringpipe.run(filtered_dataset)
     lg.info("Pipeline has finished")
