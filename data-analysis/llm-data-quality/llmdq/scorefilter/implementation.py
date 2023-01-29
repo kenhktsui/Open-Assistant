@@ -24,7 +24,7 @@ class AbsoluteScoreFilter(ScoreFilterBase):
 
 
 class ZScoreFilter(ScoreFilterBase):
-    filter_type = "absolute"
+    filter_type = "zscore"
 
     def __init__(self, config_list: List[ZScoreFilterConfig]):
         super().__init__()
