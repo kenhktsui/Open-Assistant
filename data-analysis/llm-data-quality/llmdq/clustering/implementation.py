@@ -53,9 +53,9 @@ class SemanticKmeansClustering(ClusteringBase):
         return embed / np.expand_dims(embed_l2, axis=-1)
 
     def _clustering(self, embeddings: np.ndarray) -> np.ndarray:
-        kmeans = faiss.Kmeans(embeddings, self._n_cluster, niter=self._niter, gpu=True if self._device >= 0 else False)
-        res = kmeans.train(embeddings)
-        _, I = kmeans.index.search(res, 1)
+        kmeans = faiss.Kmeans(embeddings.shape[1], self._n_cluster, niter=self._niter, gpu=True if self._device >= 0 else False)
+        kmeans.train(embeddings)
+        _, I = kmeans.index.search(embeddings, 1)
         return I.flatten()
 
     def _sampling(self, instructanswer_list: List[InstructAnswer], member_list: np.ndarray) -> List[InstructAnswer]:
