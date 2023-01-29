@@ -78,7 +78,6 @@ class SemanticKmeansClustering(ClusteringBase):
             lg.info(f"Data size smaller than or equal to {self._n_cluster}, cannot perform clustering")
             return instructanswer_list
         embeddings = self._get_embedding(instructanswer_list)
-        print(embeddings.shape)
         member_list = self._clustering(embeddings)
         sampled_instructanswer_list = self._sampling(instructanswer_list, member_list)
         return sampled_instructanswer_list
