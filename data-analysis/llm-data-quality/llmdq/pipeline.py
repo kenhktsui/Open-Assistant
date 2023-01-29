@@ -16,14 +16,14 @@ handler.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)s] - %(messag
 lg.addHandler(handler)
 
 
-def llmdq_pipeline(data: List[InstructAnswer], config: FilterConfig) -> Tuple[List[InstructAnswer], List[InstructAnswer]]:
+def llmdq_pipeline(data: List[InstructAnswer], config: FilterConfig, batch_size, device) -> Tuple[List[InstructAnswer], List[InstructAnswer]]:
     lg.info("Scoring has started")
     scorer_pipeline = ScorerPipeline()
     scorer_pipeline.add([
-        RewardModelScorer("OpenAssistant/reward-model-deberta-v3-large"),
-        PerplexityScorer("gpt2"),
-        ToxicityScorer("unitary/toxic-bert"),
-        GibberishScorer("madhurjindal/autonlp-Gibberish-Detector-492513457"),
+        RewardModelScorer("OpenAssistant/reward-model-deberta-v3-large", batch_size=batch_size, device=device),
+        PerplexityScorer("gpt2", batch_size=batch_size, device=device),
+        ToxicityScorer("unitary/toxic-bert", batch_size=batch_size, device=device),
+        GibberishScorer("madhurjindal/autonlp-Gibberish-Detector-492513457", batch_size=batch_size, device=device),
         LengthScorer()]
     )
     scorer_pipeline.score(data)

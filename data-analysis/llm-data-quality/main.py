@@ -8,6 +8,8 @@ if __name__ == "__main__":
     parser.add_argument("filter_config")
     parser.add_argument("in_data_path")
     parser.add_argument("out_data_path")
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--device", type=int, default=-1, help="positive means GPU no, -1 means using CPU")
     args = parser.parse_args()
 
     with open(args.filter_config) as f:
@@ -17,7 +19,7 @@ if __name__ == "__main__":
         data = json.load(f)
         data = [InstructAnswer(**d) for d in data]
 
-    clustered_data, removed_dataset = llmdq_pipeline(data, config)
+    clustered_data, removed_dataset = llmdq_pipeline(data, config, batch_size=args.batch_size, device=args.device)
 
     base_name = os.path.splitext(args.in_data_path)[0]
     with open(base_name + "_filtered.json", 'w') as f:
