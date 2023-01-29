@@ -1,32 +1,29 @@
 from typing import List
 from llmdq.struct import InstructAnswer, ScorerOutput
-from transformers import pipeline
 from evaluate import load
-from llmdq.scorer.base import ScorerBase
+from llmdq.scorer.base import ScorerBase, HFPipelineScorerBase
 
 
-class RewardModelScorer(ScorerBase):
+class RewardModelScorer(HFPipelineScorerBase):
     score_id = "reward"
 
-    def __init__(self, model_id, trun_len=1024):
-        self._classifier = pipeline("text-classification", model=model_id)
-        self._model_id = model_id
+    def __init__(self, model_id, task="text-classification", batch_size=8, trun_len=1024, top_k=1, device=-1):
+        super().__init__(model_id, task, batch_size, top_k, device=device)
         self._trun_len = trun_len
 
-    def score(self, instructanswer_list: List[InstructAnswer]) -> List[ScorerOutput]:
-        full_text = [ia.instruct + '\n' + ia.answer for ia in instructanswer_list]
-        full_text = [t[:self._trun_len] for t in full_text]
-        score_list = self._classifier(full_text)
-        return [
-            ScorerOutput(model_id=self._model_id, score_id=self.score_id, score=i['score']) for i in score_list
-            ]
+    def input_preprocessing(self, ia: InstructAnswer):
+        text = ia.instruct + '\n' + ia.answer
+        return text[:self._trun_len]
+
+    def score_processing(self, output: dict) -> float:
+        return output[0]['score']
 
 
 class PerplexityScorer(ScorerBase):
     score_id = "perplexity"
 
-    def __init__(self, model_id, trun_len=1024):
-        self._perplexity = load("perplexity", module_type="measurement")
+    def __init__(self, model_id, trun_len=1024, batch_size=8, device=-1):
+        self._perplexity = load("perplexity", module_type="measurement", batch_size=batch_size, device=device)
         self._model_id = model_id
         self._trun_len = trun_len
 
@@ -42,40 +39,34 @@ class PerplexityScorer(ScorerBase):
             ]
 
 
-class ToxicityScorer(ScorerBase):
+class ToxicityScorer(HFPipelineScorerBase):
     score_id = 'toxicity'
 
-    def __init__(self, model_id="unitary/toxic-bert", trun_len=1024):
-        self._classifier = pipeline("text-classification", model=model_id, top_k=None)
-        self._model_id = model_id
+    def __init__(self, model_id, task="text-classification", batch_size=8, trun_len=1024, top_k=None, device=-1):
+        super().__init__(model_id, task, batch_size, top_k=top_k, device=device)
         self._trun_len = trun_len
 
-    def score(self, instructanswer_list: List[InstructAnswer]) -> List[ScorerOutput]:
-        full_text = [ia.instruct + '\n' + ia.answer for ia in instructanswer_list]
-        full_text = [t[:self._trun_len] for t in full_text]
-        score_list = self._classifier(full_text)
-        return [
-            ScorerOutput(model_id=self._model_id, score_id=self.score_id,
-                         score=max([s["score"] for s in i])) for i in score_list
-            ]
+    def input_preprocessing(self, ia: InstructAnswer):
+        text = ia.instruct + '\n' + ia.answer
+        return text[:self._trun_len]
+
+    def score_processing(self, output: dict) -> float:
+        return max([s["score"] for s in output])
 
 
-class GibberishScorer(ScorerBase):
+class GibberishScorer(HFPipelineScorerBase):
     score_id = 'gibberish'
 
-    def __init__(self, model_id="madhurjindal/autonlp-Gibberish-Detector-492513457", trun_len=1024):
-        self._classifier = pipeline("text-classification", model=model_id, top_k=None)
-        self._model_id = model_id
+    def __init__(self, model_id, task="text-classification", batch_size=8, trun_len=1024, top_k=None, device=-1):
+        super().__init__(model_id, task, batch_size, top_k=top_k, device=device)
         self._trun_len = trun_len
 
-    def score(self, instructanswer_list: List[InstructAnswer]) -> List[ScorerOutput]:
-        full_text = [ia.instruct + '\n' + ia.answer for ia in instructanswer_list]
-        full_text = [t[:self._trun_len] for t in full_text]
-        score_list = self._classifier(full_text)
-        return [
-            ScorerOutput(model_id=self._model_id, score_id=self.score_id,
-                         score=1.0 - [l for l in i if l['label'] == 'clean'][0]['score']) for i in score_list
-            ]
+    def input_preprocessing(self, ia: InstructAnswer):
+        text = ia.instruct + '\n' + ia.answer
+        return text[:self._trun_len]
+
+    def score_processing(self, output: dict) -> float:
+        return 1.0 - [l for l in output if l['label'] == 'clean'][0]['score']
 
 
 class LengthScorer(ScorerBase):

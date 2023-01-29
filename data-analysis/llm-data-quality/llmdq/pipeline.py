@@ -22,8 +22,8 @@ def llmdq_pipeline(data: List[InstructAnswer], config: FilterConfig) -> Tuple[Li
     scorer_pipeline.add([
         RewardModelScorer("OpenAssistant/reward-model-deberta-v3-large"),
         PerplexityScorer("gpt2"),
-        ToxicityScorer(),
-        GibberishScorer(),
+        ToxicityScorer("unitary/toxic-bert"),
+        GibberishScorer("madhurjindal/autonlp-Gibberish-Detector-492513457"),
         LengthScorer()]
     )
     scorer_pipeline.score(data)
