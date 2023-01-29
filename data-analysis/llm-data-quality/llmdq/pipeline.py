@@ -48,7 +48,7 @@ def llmdq_pipeline(data: List[InstructAnswer], config: FilterConfig, batch_size,
         Dedup(),
         SemanticKmeansClustering("facebook/contriever",
                                  batch_size=batch_size,
-                                 device=f"cuda:{device}" if device >= 0 else "cpu")
+                                 device=device)
     ])
     clustered_data = clusteringpipe.run(filtered_dataset)
     lg.info("Pipeline has finished")

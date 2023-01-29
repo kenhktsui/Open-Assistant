@@ -1,4 +1,3 @@
-import logging
 from typing import List, Iterable
 import numpy as np
 import logging
@@ -22,11 +21,12 @@ class SemanticKmeansClustering(ClusteringBase):
     """
     Implemented from: https://colab.research.google.com/drive/13eGPGqcHcfJQhqTgX-PnZ5C0Fkb8nVLJ?usp=sharing
     """
-    def __init__(self, model_id, batch_size=8, device="cuda", n_cluster=100, niter=10, sample_rate=0.1):
+    def __init__(self, model_id, batch_size=8, device=-1, n_cluster=100, niter=10, sample_rate=0.1):
         self._tokenizer = AutoTokenizer.from_pretrained(model_id)
         self._model = AutoModel.from_pretrained(model_id)
         self._batch_size = batch_size
-        self._device = device
+        self._device = f"cuda:{device}" if device >= 0 else "cpu"
+        self._model.to(self._device)
         self._n_cluster = n_cluster
         self._niter = niter
         self._sampling_rate = sample_rate
@@ -52,7 +52,7 @@ class SemanticKmeansClustering(ClusteringBase):
         return embed / np.expand_dims(embed_l2, axis=-1)
 
     def _clustering(self, embeddings: np.ndarray) -> np.ndarray:
-        kmeans = faiss.Kmeans(embeddings, self._n_cluster, niter=self._niter)
+        kmeans = faiss.Kmeans(embeddings, self._n_cluster, niter=self._niter, gpu=True if self._device >= 0 else False)
         res = kmeans.train(embeddings)
         _, I = kmeans.index.search(res, 1)
         return I.flatten()
