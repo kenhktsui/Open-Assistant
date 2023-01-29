@@ -25,8 +25,9 @@ class SemanticKmeansClustering(ClusteringBase):
         self._tokenizer = AutoTokenizer.from_pretrained(model_id)
         self._model = AutoModel.from_pretrained(model_id)
         self._batch_size = batch_size
-        self._device = f"cuda:{device}" if device >= 0 else "cpu"
-        self._model.to(self._device)
+        self._device = device
+        self._device_pt = f"cuda:{self._device}" if self._device >= 0 else "cpu"
+        self._model.to(self._device_pt)
         self._n_cluster = n_cluster
         self._niter = niter
         self._sampling_rate = sample_rate
@@ -40,7 +41,7 @@ class SemanticKmeansClustering(ClusteringBase):
         embed_list = []
         full_text = [ia.instruct + "\n" + ia.answer for ia in instructanswer_list]
         for batch_text in tqdm(self._batching(full_text), desc=self.__class__.__name__):
-            inputs = self._tokenizer(batch_text, padding=True, truncation=True, return_tensors="pt").to(self._device)
+            inputs = self._tokenizer(batch_text, padding=True, truncation=True, return_tensors="pt").to(self._device_pt)
             embed = self._model(**inputs)
             embed_list.append(embed.pooler_output.cpu().detach().numpy())  # use pooled ouput
 
@@ -58,14 +59,17 @@ class SemanticKmeansClustering(ClusteringBase):
         return I.flatten()
 
     def _sampling(self, instructanswer_list: List[InstructAnswer], member_list: np.ndarray) -> List[InstructAnswer]:
-        targeted_sample_size = len(instructanswer_list) * self._sampling_rate
+        """If a cluster size is lower than as if the cluster was following uniform distribution,
+        the whole cluster is taken """
+        targeted_sample_size = len(instructanswer_list) * self._sampling_rate // self._n_cluster
         sampled_index = set()
         for i in range(self._n_cluster):
             cluster_member = np.where(member_list == i)[0]
             if cluster_member.size <= targeted_sample_size:
                 sampled_index.update(cluster_member.tolist())
             else:
-                sampled_index.update(np.random.choice(cluster_member, size=targeted_sample_size, replace=False).tolist())
+                sampled_index.update(np.random.choice(cluster_member, size=len(cluster_member) * self._sampling_rate,
+                                                      replace=False).tolist())
         return [ia for i, ia in enumerate(instructanswer_list) if i in sampled_index]
 
     def run(self, instructanswer_list: List[InstructAnswer]) -> List[InstructAnswer]:
