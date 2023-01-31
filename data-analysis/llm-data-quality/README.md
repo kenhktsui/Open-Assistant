@@ -21,7 +21,7 @@ Inherit abstract class and add your implementation in `implementation.py`. Follo
 
 ## How to run
 ```shell
-python main.py test_data/test_filter_config.json test_data/test_data.json test_data
+python main.py test_data/test_config.yaml test_data/test_data.json test_data
 ```
 The filtered data and the removed data are saved for analysis/ quality check/ develop of quality classifier.
 

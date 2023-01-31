@@ -2,11 +2,12 @@ import sys
 from typing import List, Tuple
 import logging
 from random import choice
-from llmdq.config import FilterConfig
+from llmdq.config import Config
 from llmdq.struct import InstructAnswer
-from llmdq.scorer import RewardModelScorer, PerplexityScorer, ToxicityScorer, GibberishScorer, LengthScorer, ScorerPipeline
+from llmdq.scorer import ScorerPipeline
 from llmdq.scorefilter import FilterPipeline
-from llmdq.clustering import Dedup, SemanticKmeansClustering, ClusteringPipeline
+from llmdq.clustering import ClusteringPipeline
+from llmdq.dynamic_import import instantiate_class_from_config
 
 
 lg = logging.getLogger(__name__)
@@ -16,20 +17,17 @@ handler.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)s] - %(messag
 lg.addHandler(handler)
 
 
-def llmdq_pipeline(data: List[InstructAnswer], config: FilterConfig, batch_size, device) -> Tuple[List[InstructAnswer], List[InstructAnswer]]:
+def llmdq_pipeline(data: List[InstructAnswer], config: Config) -> Tuple[List[InstructAnswer], List[InstructAnswer]]:
     lg.info("Scoring has started")
+
+    _obj_map = instantiate_class_from_config(config)
+
     scorer_pipeline = ScorerPipeline()
-    scorer_pipeline.add([
-        RewardModelScorer("OpenAssistant/reward-model-deberta-v3-large", batch_size=batch_size, device=device),
-        PerplexityScorer("gpt2", batch_size=batch_size, device=device),
-        ToxicityScorer("unitary/toxic-bert", batch_size=batch_size, device=device),
-        GibberishScorer("madhurjindal/autonlp-Gibberish-Detector-492513457", batch_size=batch_size, device=device),
-        LengthScorer()]
-    )
+    scorer_pipeline.add(_obj_map['scorer'])
     scorer_pipeline.score(data)
 
     lg.info("Filtering has started")
-    filterpipe = FilterPipeline(config)
+    filterpipe = FilterPipeline(config.scorefilter)
     filterpipe.process(data)
     filtered_dataset = filterpipe.get_clean_dataset()
     removed_dataset = filterpipe.get_removed_dataset()
@@ -44,12 +42,7 @@ def llmdq_pipeline(data: List[InstructAnswer], config: FilterConfig, batch_size,
 
     lg.info("Clustering has started")
     clusteringpipe = ClusteringPipeline()
-    clusteringpipe.add([
-        Dedup(),
-        SemanticKmeansClustering("facebook/contriever",
-                                 batch_size=batch_size,
-                                 device=device)
-    ])
+    clusteringpipe.add(_obj_map['clustering'])
     clustered_data = clusteringpipe.run(filtered_dataset)
     lg.info("Pipeline has finished")
     return clustered_data, removed_dataset

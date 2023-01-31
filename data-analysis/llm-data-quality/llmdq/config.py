@@ -17,3 +17,9 @@ class ZScoreFilterConfig(BaseSettings):
 class FilterConfig(BaseSettings):
     absolute: List[AbsoluteFilterConfig]
     relative: List[ZScoreFilterConfig]
+
+
+class Config(BaseSettings):
+    scorer: List[dict]
+    scorefilter: FilterConfig
+    clustering: List[dict]
