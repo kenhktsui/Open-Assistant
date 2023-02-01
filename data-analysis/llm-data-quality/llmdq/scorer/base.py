@@ -13,11 +13,12 @@ class ScorerBase(ABC):
 
 
 class HFPipelineScorerBase(ScorerBase):
-
-    def __init__(self, score_id: str, model_id: str, task: str, batch_size: int, device: int, **kwargs):
-        self._model = pipeline(task, model=model_id, batch_size=batch_size, device=device, **kwargs)
+    def __init__(self, score_id: str, model_id: str, task: str, batch_size: int, device: int, max_length: int, **kwargs):
+        self._model = pipeline(task, model=model_id, device=device, **kwargs)
         self._model_id = self._model.model.name_or_path
         self._score_id = score_id
+        self._batch_size = batch_size
+        self._max_length = max_length
 
     @abstractmethod
     def input_preprocessing(self, ia: InstructAnswer) -> str:
@@ -32,7 +33,8 @@ class HFPipelineScorerBase(ScorerBase):
     def score(self, instructanswer_list: List[InstructAnswer]) -> List[ScorerOutput]:
         full_text = [self.input_preprocessing(ia) for ia in instructanswer_list]
         score_list = []
-        for i in tqdm(self._model(full_text), total=len(full_text), desc=self.__class__.__name__):
+        for i in tqdm(self._model(full_text, batch_size=self._batch_size), max_length=self._max_length,
+                      total=len(full_text), desc=self.__class__.__name__):
             score_list.append(ScorerOutput(model_id=self._model_id, score_id=self._score_id,
                                            score=self.score_processing(i)))
         return score_list
