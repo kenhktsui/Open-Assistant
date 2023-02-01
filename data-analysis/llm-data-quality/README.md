@@ -28,13 +28,6 @@ The pipeline will run each component in this order: `scorer`->`scorefilter` -> `
 
 ```shell
 scorer:
-- _impl_: RewardModelScorer
-  score_id: reward
-  model_id: OpenAssistant/reward-model-deberta-v3-large
-  batch_size: 8
-  max_length: 1024
-  top_k: 1
-  device: -1
 - _impl_: PerplexityScorer
   score_id: perplexity
   model_id: gpt2
@@ -45,19 +38,19 @@ scorer:
   score_id: toxicity
   model_id: unitary/toxic-bert
   batch_size: 8
-  max_length: 1024
+  max_length: 512
   device: -1
 - _impl_: GibberishScorer
   score_id: gibberish
   model_id: madhurjindal/autonlp-Gibberish-Detector-492513457
   batch_size: 8
-  max_length: 1024
+  max_length: 512
   device: -1
 - _impl_: ContradictionScorer
   score_id: contradiction
   model_id: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
   batch_size: 8
-  max_length: 1024
+  max_length: 512
   device: -1
 - _impl_: LengthScorer
   score_id: length
