@@ -16,16 +16,113 @@ Config -> `ScorerPipeline` -> `FilterPipeline` (Removal) -> `ClusteringPipeline`
 - FilterPipeline offers two approaches so far, based on absolute threshold, and zscore of scores.
 - ClusteringPipeline involves any process involves pairwise comparison, including deduplication, semantic clustering, etc. This step involves sampling and removal of data point.
 
-## How to add your module:
-Inherit abstract class and add your implementation in `implementation.py`. Follow the signature to avoid break.
+## Configuration Management
+The pipeline can be fully initiated by a yaml as below.  
+The pipeline will run each component in this order: `scorer`->`scorefilter` -> `clustering`  
+- `scorer` and `clustering` contain a list of objects, which determines the order of execution.
+`_impl__` corresponds to the class name in `implementation.py` of respective components, and other arguments refer to the arguments to instantiate that class.
+- `scorefilter` is more statistic in nature as in practice a filtering is either represented as an absoluate or relative threshold.
+  - `ge`: score greater than or equal to the threshold will pass the filter
+  - `le`: score less than or equal to the threshold will pass the filter
+  - list of conditions are perceived as `AND` logic. For example, if you set two conditions (x>=a & x<=b), effectively it will be a range: a <= x <= b
+
+```shell
+scorer:
+- _impl_: RewardModelScorer
+  score_id: reward
+  model_id: OpenAssistant/reward-model-deberta-v3-large
+  batch_size: 8
+  trun_len: 1024
+  top_k: 1
+  device: -1
+- _impl_: PerplexityScorer
+  score_id: perplexity
+  model_id: gpt2
+  batch_size: 8
+  trun_len: 1024
+  device: -1
+- _impl_: ToxicityScorer
+  score_id: toxicity
+  model_id: unitary/toxic-bert
+  batch_size: 8
+  trun_len: 1024
+  device: -1
+- _impl_: GibberishScorer
+  score_id: gibberish
+  model_id: madhurjindal/autonlp-Gibberish-Detector-492513457
+  batch_size: 8
+  trun_len: 1024
+  device: -1
+- _impl_: ContradictionScorer
+  score_id: contradiction
+  model_id: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
+  batch_size: 8
+  trun_len: 1024
+  device: -1
+- _impl_: LengthScorer
+  score_id: length
+
+scorefilter:
+  absolute:
+  - score_id: reward
+    threshold: 0.5
+    direction: ge
+  - score_id: toxicity
+    threshold: 0.1
+    direction: le
+  - score_id: gibberish
+    threshold: 0.1
+    direction: le
+  - score_id: contradiction
+    threshold: 0.5
+    direction: le
+  - score_id: length
+    threshold: 2000
+    direction: le
+  - score_id: length
+    threshold: 10
+    direction: ge
+  relative:
+  - score_id: perplexity
+    threshold: 1.65
+    direction: le
+  - score_id: perplexity
+    threshold: -1.65
+    direction: ge
+
+clustering:
+- _impl_: Dedup
+- _impl_: SemanticKmeansClustering
+  batch_size: 8
+  device: -1
+  model_id: facebook/contriever
+  n_cluster: 100
+  niter: 10
+  sample_rate: 0.1
+```
 
 ## How to run
 ```shell
-python main.py test_data/test_config.yaml test_data/test_data.json test_data
+python main.py test_data/test_confi_gpu.yaml test_data/test_data.json test_data
 ```
 The filtered data and the removed data are saved for analysis/ quality check/ develop of quality classifier.
+An example can be found in [colab](https://colab.research.google.com/drive/1zGvPjHXDQiGq1c9SIYS_tZAzcFIWOICj?usp=sharing&authuser=2#scrollTo=tUEPRDMoH6Bi).
+
+
+## How to add your module:
+Inherit abstract class and add your implementation in `implementation.py`. Follow the signature to avoid break.
+
 
 ## TODO
-- A lot of implementations
+- a lot of implementations
 - performance optimisation (multiprocessing/ offload to GPU)
-- Sampling after clustering, ranking
+- more validation in initiation
+- visualisation module
+
+## Performance Optimisation (TODO)
+Stage  | Time Complexity  (N=dataset size) |  Performance Optimisers
+--- | --- | --- 
+Scoring | O(N * n_score) | <ul><li>Single GPU settings: Async programming won’t help as it’s GPU-bounded</li><li>Multiple GPU settings: Async programming to dispatch different scorers to multiple GPUs (ie. we treat individual GPU as a webserver https://huggingface.co/docs/transformers/pipeline_webserver)
+Filter | O(N), atomic operation is minimal | Multiprocessing for very large data
+Clustering |O(N) + O(N * n_cluster)| <ul><li>Single GPU settings: GPU is used for clustering, use of half precision</li><li>Multiple GPU settings: For very large data, agglomerative clustering is required to prevent GPU OOM. Batches of data are fed into multiple GPUs for clustering. Then, clusters from multiple batches are merged based on centroids.  ANN search is then performed afterwards to assign clusters.
+
