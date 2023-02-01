@@ -1,9 +1,12 @@
 from typing import Dict
 import importlib
+from copy import deepcopy
 from llmdq.config import Config
 
 
 def instantiate_class_from_config(config: Config) -> Dict[str, list]:
+    config = deepcopy(config)
+
     obj_map = {}
     for component_name in ["scorer", "clustering"]:
         if component_name not in obj_map:
