@@ -24,6 +24,12 @@ scorer:
   batch_size: 8
   trun_len: 1024
   device: -1
+- _impl_: ContradictionScorer
+  score_id: contradiction
+  model_id: MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli
+  batch_size: 8
+  trun_len: 1024
+  device: -1
 - _impl_: LengthScorer
   score_id: length
 
@@ -37,6 +43,9 @@ scorefilter:
     direction: le
   - score_id: gibberish
     threshold: 0.1
+    direction: le
+  - score_id: contradiction
+    threshold: 0.5
     direction: le
   - score_id: length
     threshold: 2000

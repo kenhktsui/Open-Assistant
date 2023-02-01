@@ -1,12 +1,13 @@
 from typing import List
-from llmdq.struct import InstructAnswer, ScorerOutput
 from evaluate import load
+from tqdm import tqdm
+from llmdq.struct import InstructAnswer, ScorerOutput
 from llmdq.scorer.base import ScorerBase, HFPipelineScorerBase
 
 
 class RewardModelScorer(HFPipelineScorerBase):
     def __init__(self, score_id, model_id, task="text-classification", batch_size=8, trun_len=1024, top_k=1, device=-1):
-        super().__init__(score_id, model_id, task, batch_size, top_k, device=device)
+        super().__init__(score_id, model_id, task, batch_size, device, top_k=top_k)
         self._trun_len = trun_len
 
     def input_preprocessing(self, ia: InstructAnswer):
@@ -38,7 +39,7 @@ class PerplexityScorer(ScorerBase):
 
 class ToxicityScorer(HFPipelineScorerBase):
     def __init__(self, score_id, model_id, task="text-classification", batch_size=8, trun_len=1024, top_k=None, device=-1):
-        super().__init__(score_id, model_id, task, batch_size, top_k=top_k, device=device)
+        super().__init__(score_id, model_id, task, batch_size, device, top_k=top_k)
         self._trun_len = trun_len
 
     def input_preprocessing(self, ia: InstructAnswer):
@@ -51,7 +52,7 @@ class ToxicityScorer(HFPipelineScorerBase):
 
 class GibberishScorer(HFPipelineScorerBase):
     def __init__(self, score_id, model_id, task="text-classification", batch_size=8, trun_len=1024, top_k=None, device=-1):
-        super().__init__(score_id, model_id, task, batch_size, top_k=top_k, device=device)
+        super().__init__(score_id, model_id, task, batch_size, device, top_k=top_k)
         self._trun_len = trun_len
 
     def input_preprocessing(self, ia: InstructAnswer):
@@ -60,6 +61,29 @@ class GibberishScorer(HFPipelineScorerBase):
 
     def score_processing(self, output: dict) -> float:
         return 1.0 - [l for l in output if l['label'] == 'clean'][0]['score']
+
+
+class ContradictionScorer(HFPipelineScorerBase):
+    def __init__(self, score_id, model_id, task="zero-shot-classification", batch_size=8, trun_len=1024, device=-1):
+        super().__init__(score_id, model_id, task, batch_size, device)
+        self._trun_len = trun_len
+        self._label_name = ["entailment", "neutral", "contradiction"]
+
+    def input_preprocessing(self, ia: InstructAnswer):
+        return ia.answer[:self._trun_len]
+
+    def score_processing(self, output: dict) -> float:
+        idx = output['labels'].index('contradiction')
+        return output['scores'][idx]
+
+    def score(self, instructanswer_list: List[InstructAnswer]) -> List[ScorerOutput]:
+        full_text = [self.input_preprocessing(ia) for ia in instructanswer_list]
+        score_list = []
+        for i in tqdm(self._model(full_text, self._label_name, multi_label=False),
+                      total=len(full_text), desc=self.__class__.__name__):
+            score_list.append(ScorerOutput(model_id=self._model_id, score_id=self._score_id,
+                                           score=self.score_processing(i)))
+        return score_list
 
 
 class LengthScorer(ScorerBase):
