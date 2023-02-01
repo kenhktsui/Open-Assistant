@@ -102,10 +102,56 @@ clustering:
 ```
 
 ## How to run
+### 1. as a script
 ```shell
 python main.py test_data/test_confi_gpu.yaml test_data/test_data.json test_data
 ```
 The filtered data and the removed data are saved for analysis/ quality check/ develop of quality classifier.
+
+### 2. in Python
+#### running whole pipeline
+```python
+import yaml
+from tqdm import tqdm
+from datasets import load_dataset
+from llmdq import Config, InstructAnswer, llmdq_pipeline
+
+
+with open('test_data/test_config_gpu.yaml') as f:
+    config = Config(**yaml.safe_load(f))
+
+dataset = load_dataset('marianna13/random_dataset')
+data = []
+for d in tqdm(dataset['train']):
+  data.append(InstructAnswer(instruct=d['question'], answer=d['answer']))
+
+clustered_data, removed_dataset = llmdq_pipeline(data, config)
+```
+#### running individual component
+```python
+from tqdm import tqdm
+from datasets import load_dataset
+from llmdq.clustering import ClusteringPipeline, SemanticKmeansClustering
+from llmdq import InstructAnswer
+
+
+dataset = load_dataset('marianna13/random_dataset')
+data = []
+for d in tqdm(dataset['train']):
+  data.append(InstructAnswer(instruct=d['question'], answer=d['answer']))
+
+
+clusteringpipe = ClusteringPipeline()
+clusteringpipe.add([
+    SemanticKmeansClustering("facebook/contriever",
+                              batch_size=32,
+                              device=0,
+                              n_cluster=100,
+                              sample_rate=0.1)
+])
+clustered_data = clusteringpipe.run(data)
+```
+
 An example can be found in [colab](https://colab.research.google.com/drive/1zGvPjHXDQiGq1c9SIYS_tZAzcFIWOICj?usp=sharing&authuser=2#scrollTo=tUEPRDMoH6Bi).
 
 
