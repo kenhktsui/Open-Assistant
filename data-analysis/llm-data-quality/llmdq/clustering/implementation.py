@@ -1,10 +1,8 @@
-from typing import List, Iterable
 import numpy as np
 import logging
 from transformers import AutoTokenizer, AutoModel
 import faiss
-from tqdm import tqdm
-from llmdq.struct import InstructAnswer
+from datasets import Dataset
 from llmdq.clustering.base import ClusteringBase
 
 
@@ -12,9 +10,9 @@ lg = logging.getLogger(__name__)
 
 
 class Dedup(ClusteringBase):
-    def run(self, instructanswer_list: List[InstructAnswer]) -> List[InstructAnswer]:
+    def run(self, instructanswer_dataset: Dataset) -> Dataset:
         """TODO"""
-        return instructanswer_list
+        return instructanswer_dataset
 
 
 class SemanticKmeansClustering(ClusteringBase):
@@ -32,20 +30,24 @@ class SemanticKmeansClustering(ClusteringBase):
         self._niter = niter
         self._sampling_rate = sample_rate
 
-    def _batching(self, iterable: list) -> Iterable:
-        length = len(iterable)
-        for ndx in range(0, length, self._batch_size):
-            yield iterable[ndx:min(ndx + self._batch_size, length)]
+    def _get_embedding(self, instructanswer_dataset: Dataset) -> np.ndarray:
+        def _batch_predict(ia_data):
+            text_input = [instruct + '\n' + answer
+                          for instruct, answer in zip(ia_data["instruct"], ia_data["answer"])]
+            tokens = self._tokenizer(text_input,
+                                     padding=True,
+                                     truncation=True,
+                                     return_tensors="pt")
+            output = self._model(**tokens).pooler_output.cpu().detach().numpy().astype('float32')
+            return {
+                f"embeddings": output
+            }
 
-    def _get_embedding(self, instructanswer_list: List[InstructAnswer]) -> np.ndarray:
-        embed_list = []
-        full_text = [ia.instruct + "\n" + ia.answer for ia in instructanswer_list]
-        for batch_text in tqdm(self._batching(full_text), desc=self.__class__.__name__):
-            inputs = self._tokenizer(batch_text, padding=True, truncation=True, return_tensors="pt").to(self._device_pt)
-            embed = self._model(**inputs)
-            embed_list.append(embed.pooler_output.cpu().detach().numpy())  # use pooled ouput
-
-        embed = np.vstack(embed_list)
+        ds_with_embeddings = instructanswer_dataset.map(_batch_predict,
+                                                        desc=self.__class__.__name__,
+                                                        batched=True,
+                                                        batch_size=self._batch_size)
+        embed = np.vstack(ds_with_embeddings["embeddings"])
 
         # normalised with l2-norm
         embed_l2 = np.atleast_1d(np.linalg.norm(embed, ord=2, axis=-1))
@@ -53,15 +55,16 @@ class SemanticKmeansClustering(ClusteringBase):
         return embed / np.expand_dims(embed_l2, axis=-1)
 
     def _clustering(self, embeddings: np.ndarray) -> np.ndarray:
-        kmeans = faiss.Kmeans(embeddings.shape[1], self._n_cluster, niter=self._niter, gpu=True if self._device >= 0 else False)
+        kmeans = faiss.Kmeans(embeddings.shape[1], self._n_cluster, niter=self._niter,
+                              gpu=True if self._device >= 0 else False)
         kmeans.train(embeddings)
         _, I = kmeans.index.search(embeddings, 1)
         return I.flatten()
 
-    def _sampling(self, instructanswer_list: List[InstructAnswer], member_list: np.ndarray) -> List[InstructAnswer]:
+    def _sampling(self, instructanswer_dataset: Dataset, member_list: np.ndarray) -> Dataset:
         """If a cluster size is lower than as if the cluster was following uniform distribution,
         the whole cluster is taken """
-        targeted_sample_size = len(instructanswer_list) * self._sampling_rate // self._n_cluster
+        targeted_sample_size = len(instructanswer_dataset) * self._sampling_rate // self._n_cluster
         sampled_index = set()
         for i in range(self._n_cluster):
             cluster_member = np.where(member_list == i)[0]
@@ -71,16 +74,16 @@ class SemanticKmeansClustering(ClusteringBase):
                 sampled_index.update(np.random.choice(cluster_member,
                                                       size=int(len(cluster_member) * self._sampling_rate),
                                                       replace=False).tolist())
-        return [ia for i, ia in enumerate(instructanswer_list) if i in sampled_index]
+        return instructanswer_dataset.select(list(sampled_index), desc="Sampling dataset after SemanticKmeansClustering")
 
-    def run(self, instructanswer_list: List[InstructAnswer]) -> List[InstructAnswer]:
-        if len(instructanswer_list) <= self._n_cluster:
+    def run(self, instructanswer_dataset: Dataset) -> Dataset:
+        if len(instructanswer_dataset) <= self._n_cluster:
             lg.info(f"Data size smaller than or equal to {self._n_cluster}, cannot perform clustering")
-            return instructanswer_list
-        embeddings = self._get_embedding(instructanswer_list)
+            return instructanswer_dataset
+        embeddings = self._get_embedding(instructanswer_dataset)
         member_list = self._clustering(embeddings)
-        sampled_instructanswer_list = self._sampling(instructanswer_list, member_list)
-        return sampled_instructanswer_list
+        sampled_instructanswer_dataset = self._sampling(instructanswer_dataset, member_list)
+        return sampled_instructanswer_dataset
 
 
 class ClusteringPipeline(ClusteringBase):
@@ -90,7 +93,7 @@ class ClusteringPipeline(ClusteringBase):
     def add(self, clustering_list) -> None:
         self._clustering_list.extend(clustering_list)
 
-    def run(self, instructanswer_list: List[InstructAnswer]) -> List[InstructAnswer]:
+    def run(self, instructanswer_dataset: Dataset) -> Dataset:
         for clust in self._clustering_list:
-            instructanswer_list = clust.run(instructanswer_list)
-        return instructanswer_list
+            instructanswer_dataset = clust.run(instructanswer_dataset)
+        return instructanswer_dataset

@@ -3,7 +3,8 @@ if __name__ == "__main__":
     import os
     import json
     import yaml
-    from llmdq import Config, InstructAnswer, llmdq_pipeline
+    from datasets import Dataset
+    from llmdq import Config, llmdq_pipeline
 
     parser = argparse.ArgumentParser("Data quality pipeline")
     parser.add_argument("config")
@@ -18,12 +19,13 @@ if __name__ == "__main__":
 
     with open(args.in_data_path) as f:
         data = json.load(f)
-        data = [InstructAnswer(**d) for d in data]
+
+    data = {"instruct": [d['instruct'] for d in data],
+            "answer": [d['answer'] for d in data]}
+    data = Dataset.from_dict(data)
 
     clustered_data, removed_dataset = llmdq_pipeline(data, config)
 
     base_name = os.path.splitext(args.in_data_path)[0]
-    with open(base_name + "_filtered.json", 'w') as f:
-        json.dump([i.dict() for i in clustered_data], f)
-    with open(base_name + "_removed.json", 'w') as f:
-        json.dump([i.dict() for i in removed_dataset], f)
+    clustered_data.save_to_disk(base_name + "_filtered")
+    removed_dataset.save_to_disk(base_name + "_removed")

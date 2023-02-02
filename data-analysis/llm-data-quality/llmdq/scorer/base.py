@@ -1,15 +1,30 @@
-from typing import List
+from typing import List, Dict
 from abc import ABC, abstractmethod
-from tqdm import tqdm
 from transformers import pipeline
-from llmdq.struct import ScorerOutput, InstructAnswer
+from datasets import Dataset
 
 
 class ScorerBase(ABC):
-
     @abstractmethod
-    def score(self, instructanswer_list: List[InstructAnswer]) -> List[ScorerOutput]:
+    def _batch_predict(self, ia_list: Dict[str, List]) -> Dict[str, List]:
+        """
+        Input:
+        {
+            "instruct": ["Hi!", "How are you?"],
+            "answer": ["Yo!", "Hey, how are you?"]
+        }
+        Output:
+        {
+            "SCORE_ID_score": [0.9, 0.8]
+            "SCORE_ID_model_id": ["model1", "model1"]
+        }
+        """
         pass
+
+    def score(self, instructanswer_dataset: Dataset) -> Dataset:
+        instructanswer_dataset = instructanswer_dataset.map(self._batch_predict, batched=True,
+                                                            desc=self.__class__.__name__)
+        return instructanswer_dataset
 
 
 class HFPipelineScorerBase(ScorerBase):
@@ -21,7 +36,7 @@ class HFPipelineScorerBase(ScorerBase):
         self._max_length = max_length
 
     @abstractmethod
-    def input_preprocessing(self, ia: InstructAnswer) -> str:
+    def input_preprocessing(self, instruct: str, answer: str) -> str:
         """Preprocessing InstructAnswer into text for scorer input"""
         pass
 
@@ -30,11 +45,16 @@ class HFPipelineScorerBase(ScorerBase):
         """Convert classifier output into float to cater for different output in HF model hub"""
         pass
 
-    def score(self, instructanswer_list: List[InstructAnswer]) -> List[ScorerOutput]:
-        full_text = [self.input_preprocessing(ia) for ia in instructanswer_list]
-        score_list = []
-        for i in tqdm(self._model(full_text, batch_size=self._batch_size), max_length=self._max_length,
-                      total=len(full_text), desc=self.__class__.__name__):
-            score_list.append(ScorerOutput(model_id=self._model_id, score_id=self._score_id,
-                                           score=self.score_processing(i)))
-        return score_list
+    def _batch_predict(self, ia_list: Dict[str, List]) -> Dict[str, List]:
+        text_input = [self.input_preprocessing(instruct, answer)
+                      for instruct, answer in zip(ia_list["instruct"], ia_list["answer"])]
+        output = self._model(text_input, max_length=self._max_length, truncation=True)
+        return {
+            f"{self._score_id}_score": list(map(self.score_processing, output)),
+            f"{self._score_id}_model_id": [self._model_id] * len(output)
+        }
+
+    def score(self, instructanswer_dataset: Dataset) -> Dataset:
+        instructanswer_dataset = instructanswer_dataset.map(self._batch_predict, batched=True, batch_size=self._batch_size,
+                                                            desc=self.__class__.__name__)
+        return instructanswer_dataset

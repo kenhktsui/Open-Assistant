@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import List
-from llmdq.struct import InstructAnswer
+from datasets import Dataset
 
 
 class ScoreFilterBase(ABC):
@@ -11,21 +10,17 @@ class ScoreFilterBase(ABC):
         self._removed_dataset = []
 
     @abstractmethod
-    def is_pass(self, instructanswer: InstructAnswer) -> None:
+    def is_pass(self, instructanswer: dict) -> None:
         pass
 
-    def _get_dataset_statistics(self, instructanswer_list) -> None:
+    def _get_dataset_statistics(self, instructanswer_data: Dataset) -> None:
         pass
 
-    def process(self, instructanswer_list: List[InstructAnswer]) -> None:
+    def process(self, instructanswer_dataset: Dataset) -> None:
         """removal not inplace yet"""
-        self._get_dataset_statistics(instructanswer_list)
-
-        for ia in instructanswer_list:
-            if self.is_pass(ia):
-                self._clean_dataset.append(ia)
-            else:
-                self._removed_dataset.append(ia)
+        self._get_dataset_statistics(instructanswer_dataset)
+        self._clean_dataset = instructanswer_dataset.filter(self.is_pass, desc="Slicing clean data")
+        self._removed_dataset = instructanswer_dataset.filter(lambda x: not self.is_pass(x), desc="Slicing removed data")
 
     def get_clean_dataset(self):
         return self._clean_dataset

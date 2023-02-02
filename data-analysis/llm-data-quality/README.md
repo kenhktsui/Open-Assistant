@@ -99,39 +99,34 @@ clustering:
 ```shell
 python main.py test_data/test_confi_gpu.yaml test_data/test_data.json test_data
 ```
+`test_data/test_data.json` is expected to be a list of [{"instruct": "How are you?", "answer": "I am good."}]
+
 The filtered data and the removed data are saved for analysis/ quality check/ develop of quality classifier.
 
 ### 2. in Python
 #### running whole pipeline
 ```python
 import yaml
-from tqdm import tqdm
 from datasets import load_dataset
-from llmdq import Config, InstructAnswer, llmdq_pipeline
+from llmdq import Config, llmdq_pipeline
 
 
 with open('test_data/test_config_gpu.yaml') as f:
     config = Config(**yaml.safe_load(f))
 
 dataset = load_dataset('marianna13/random_dataset')
-data = []
-for d in tqdm(dataset['train']):
-  data.append(InstructAnswer(instruct=d['question'], answer=d['answer']))
-
-clustered_data, removed_dataset = llmdq_pipeline(data, config)
+dataset = dataset.rename_columns({"question": "instruct"})
+clustered_data, removed_dataset = llmdq_pipeline(dataset, config)
 ```
 #### running individual component
 ```python
-from tqdm import tqdm
 from datasets import load_dataset
 from llmdq.clustering import ClusteringPipeline, SemanticKmeansClustering
-from llmdq import InstructAnswer
+
 
 
 dataset = load_dataset('marianna13/random_dataset')
-data = []
-for d in tqdm(dataset['train']):
-  data.append(InstructAnswer(instruct=d['question'], answer=d['answer']))
+dataset = dataset.rename_columns({"question": "instruct"})
 
 
 clusteringpipe = ClusteringPipeline()
@@ -142,7 +137,7 @@ clusteringpipe.add([
                               n_cluster=100,
                               sample_rate=0.1)
 ])
-clustered_data = clusteringpipe.run(data)
+clustered_data = clusteringpipe.run(dataset)
 ```
 
 An example can be found in [colab](https://colab.research.google.com/drive/1zGvPjHXDQiGq1c9SIYS_tZAzcFIWOICj?usp=sharing&authuser=2#scrollTo=tUEPRDMoH6Bi).

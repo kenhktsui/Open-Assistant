@@ -1,5 +1,6 @@
 from typing import List
-from llmdq.struct import InstructAnswer
+import re
+from datasets import Dataset
 from llmdq.config import FilterConfig
 from llmdq.scorefilter.base import ScoreFilterBase
 from llmdq.config import AbsoluteFilterConfig, ZScoreFilterConfig
@@ -12,13 +13,14 @@ class AbsoluteScoreFilter(ScoreFilterBase):
         super().__init__()
         self._config_list = config_list
 
-    def is_pass(self, instructanswer: InstructAnswer) -> bool:
-        for score in instructanswer.score:
+    def is_pass(self, instructanswer: dict) -> bool:
+        score_id_list = [re.sub("_score$", "", k) for k in instructanswer.keys() if k.endswith("_score")]
+        for score_id in score_id_list:
             for config in self._config_list:
-                if score.score_id == config.score_id:
-                    if config.direction == "ge" and score.score <= config.threshold:
+                if score_id == config.score_id:
+                    if config.direction == "ge" and instructanswer[score_id + "_score"] <= config.threshold:
                         return False
-                    if config.direction == "le" and score.score >= config.threshold:
+                    if config.direction == "le" and instructanswer[score_id + "_score"] >= config.threshold:
                         return False
         return True
 
@@ -30,37 +32,41 @@ class ZScoreFilter(ScoreFilterBase):
         super().__init__()
         self._config_list = config_list
 
-    def _get_dataset_statistics(self, instructanswer_list: List[InstructAnswer]) -> None:
+    def _get_dataset_statistics(self, instructanswer_dataset: Dataset) -> None:
         self._dataset_stat = {}
 
-        if not instructanswer_list:
+        if not instructanswer_dataset:
             return
 
-        data_len = len(instructanswer_list)
+        data_len = len(instructanswer_dataset)
+        score_id_list = [re.sub("_score$", "", k) for k in instructanswer_dataset.column_names if k.endswith("_score")]
 
-        for config in self._config_list:
-            self._dataset_stat[config.score_id] = {}
-            running_x1 = 0
-            running_x2 = 0
-            for ia in instructanswer_list:
-                for s in ia.score:
-                    if config.score_id == s.score_id:
-                        running_x1 += s.score
-                        running_x2 += s.score ** 2
+        tmp_stat = {}
+        for score_id in score_id_list:
+            self._dataset_stat[score_id] = {}
+            tmp_stat[score_id + "_running_x1"] = 0
+            tmp_stat[score_id + "_running_x2"] = 0
 
-            mean = running_x1/data_len
-            std = (running_x2/data_len - mean**2) ** 0.5
-            self._dataset_stat[config.score_id]["mean"] = mean
+        for score_id in score_id_list:
+            for ia in instructanswer_dataset:
+                tmp_stat[score_id + "_running_x1"] += ia[score_id + "_score"]
+                tmp_stat[score_id + "_running_x2"] += ia[score_id + "_score"] ** 2
+
+            mean = tmp_stat[score_id + "_running_x1"]/data_len
+            std = (tmp_stat[score_id + "_running_x2"]/data_len - mean**2) ** 0.5
+
+            self._dataset_stat[score_id]["mean"] = mean
             if std == 0:
-                raise Exception(f"Dataset statistics {config.score_id} has zero std")
-            self._dataset_stat[config.score_id]["std"] = std
+                raise Exception(f"Dataset statistics {score_id} has zero std")
+            self._dataset_stat[score_id]["std"] = std
 
-    def is_pass(self, instructanswer: InstructAnswer) -> bool:
+    def is_pass(self, instructanswer: dict) -> bool:
+        score_id_list = [re.sub("_score$", "", k) for k in instructanswer.keys() if k.endswith("_score")]
         for config in self._config_list:
             score_stat = self._dataset_stat[config.score_id]
-            for score in instructanswer.score:
-                if score.score_id == config.score_id:
-                    z_score = (score.score - score_stat["mean"]) / score_stat["std"]
+            for score_id in score_id_list:
+                if score_id == config.score_id:
+                    z_score = (instructanswer[score_id + "_score"] - score_stat["mean"]) / score_stat["std"]
                     if config.direction == "ge" and z_score <= config.threshold:
                         return False
                     if config.direction == "le" and z_score >= config.threshold:
@@ -74,10 +80,10 @@ class FilterPipeline(ScoreFilterBase):
         self._absfilter = AbsoluteScoreFilter(config.absolute)
         self._zscorefilter = ZScoreFilter(config.relative)
 
-    def _get_dataset_statistics(self, instructanswer_list):
-        self._zscorefilter._get_dataset_statistics(instructanswer_list)
+    def _get_dataset_statistics(self, instructanswer_dataset: Dataset):
+        self._zscorefilter._get_dataset_statistics(instructanswer_dataset)
 
-    def is_pass(self, instructanswer: InstructAnswer):
+    def is_pass(self, instructanswer: dict):
         return (
                 self._absfilter.is_pass(instructanswer) and
                 self._zscorefilter.is_pass(instructanswer)

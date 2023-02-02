@@ -1,9 +1,9 @@
 import sys
-from typing import List, Tuple
+from typing import Tuple
 import logging
 from random import choice
+from datasets import Dataset
 from llmdq.config import Config
-from llmdq.struct import InstructAnswer
 from llmdq.scorer import ScorerPipeline
 from llmdq.scorefilter import FilterPipeline
 from llmdq.clustering import ClusteringPipeline
@@ -17,14 +17,14 @@ handler.setFormatter(logging.Formatter('[%(asctime)s] [%(levelname)s] - %(messag
 lg.addHandler(handler)
 
 
-def llmdq_pipeline(data: List[InstructAnswer], config: Config) -> Tuple[List[InstructAnswer], List[InstructAnswer]]:
+def llmdq_pipeline(data: Dataset, config: Config) -> Tuple[Dataset, Dataset]:
     lg.info("Scoring has started")
 
     _obj_map = instantiate_class_from_config(config)
 
     scorer_pipeline = ScorerPipeline()
     scorer_pipeline.add(_obj_map['scorer'])
-    scorer_pipeline.score(data)
+    data = scorer_pipeline.score(data)
 
     lg.info("Filtering has started")
     filterpipe = FilterPipeline(config.scorefilter)
