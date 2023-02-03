@@ -21,7 +21,7 @@ class HFPipelineScorerBase(ScorerBase):
         self._max_length = max_length
 
     @abstractmethod
-    def input_preprocessing(self, instruct: str, answer: str) -> str:
+    def input_preprocessing(self, ia: dict) -> dict:
         """Preprocessing InstructAnswer into text for scorer input"""
         pass
 
@@ -30,17 +30,12 @@ class HFPipelineScorerBase(ScorerBase):
         """Convert classifier output into float to cater for different output in HF model hub"""
         pass
 
-    def _batch_preprocessing(self, ia_list: Dict[str, List]) -> Dict[str, List]:
-        text_input = [self.input_preprocessing(instruct, answer)
-                      for instruct, answer in zip(ia_list["instruct"], ia_list["answer"])]
-        return {"text": text_input}
-
     def score(self, instructanswer_dataset: Dataset) -> Dataset:
         """
-        Preprocessing uses the map function in Dataset
+        Preprocessing uses the map function in Dataset, without batching to avoid overhead
         Model inferencing follows the best practice of https://huggingface.co/docs/transformers/main_classes/pipelines#pipeline-batching
         """
-        instructanswer_dataset = instructanswer_dataset.map(self._batch_preprocessing, batched=True,
+        instructanswer_dataset = instructanswer_dataset.map(self.input_preprocessing,
                                                             desc=f"{self.__class__.__name__}_preprocessing")
         output = []
         for out in tqdm(self._model(KeyDataset(instructanswer_dataset, "text"),
