@@ -1,6 +1,8 @@
 from typing import List, Dict
+from tqdm import tqdm
 from evaluate import load
 from datasets import Dataset
+from transformers.pipelines.pt_utils import KeyDataset
 from llmdq.scorer.base import ScorerBase, HFPipelineScorerBase
 
 
@@ -26,19 +28,21 @@ class PerplexityScorer(ScorerBase):
         # preload the model
         self._perplexity.compute(data=["prewarm model"], model_id=self._model_id)
 
-    def _batch_predict(self, ia_list: Dict[str, List]) -> Dict[str, List]:
-        text_input = [instruct + '\n' + answer
+    def input_preprocessing(self, instruct: str, answer: str) -> str:
+        return instruct + '\n' + answer
+
+    def _batch_preprocessing(self, ia_list: Dict[str, List]) -> Dict[str, List]:
+        text_input = [self.input_preprocessing(instruct, answer)
                       for instruct, answer in zip(ia_list["instruct"], ia_list["answer"])]
-        output = self._perplexity.compute(data=text_input, model_id=self._model_id,
-                                          batch_size=self._batch_size, max_length=self._max_length)
-        return {
-            f"{self._score_id}_score": output['perplexities'],
-            f"{self._score_id}_model_id": [self._model_id] * len(output['perplexities'])
-        }
+        return {"text": text_input}
 
     def score(self, instructanswer_dataset: Dataset) -> Dataset:
-        instructanswer_dataset = instructanswer_dataset.map(self._batch_predict, batched=True, batch_size=self._batch_size,
-                                                            desc=self.__class__.__name__)
+        instructanswer_dataset = instructanswer_dataset.map(self._batch_preprocessing, batched=True,
+                                                            desc=f"{self.__class__.__name__}_preprocessing")
+        output = self._perplexity.compute(data=instructanswer_dataset['text'], model_id=self._model_id,
+                        batch_size=self._batch_size, max_length=self._max_length)
+        instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_score", output['perplexities'])
+        instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_model_id", [self._model_id] * len(output['perplexities']))
         return instructanswer_dataset
 
 
@@ -76,14 +80,17 @@ class ContradictionScorer(HFPipelineScorerBase):
         idx = output['labels'].index('contradiction')
         return output['scores'][idx]
 
-    def _batch_predict(self, ia_list: Dict[str, List]) -> Dict[str, List]:
-        text_input = [self.input_preprocessing(instruct, answer)
-                      for instruct, answer in zip(ia_list["instruct"], ia_list["answer"])]
-        output = self._model(text_input, self._label_name, multi_label=False, max_length=self._max_length, truncation=True)
-        return {
-            f"{self._score_id}_score": list(map(self.score_processing, output)),
-            f"{self._score_id}_model_id": [self._model_id] * len(output)
-        }
+    def score(self, instructanswer_dataset: Dataset) -> Dataset:
+        instructanswer_dataset = instructanswer_dataset.map(self._batch_preprocessing, batched=True,
+                                                            desc=f"{self.__class__.__name__}_preprocessing")
+        output = []
+        for out in tqdm(self._model(KeyDataset(instructanswer_dataset, "text"), self._label_name, multi_label=False,
+                                    batch_size=self._batch_size, max_length=self._max_length),
+                        total=len(instructanswer_dataset), desc=self.__class__.__name__):
+            output.append(self.score_processing(out))
+        instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_score", output)
+        instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_model_id", [self._model_id] * len(output))
+        return instructanswer_dataset
 
 
 class LengthScorer(ScorerBase):
@@ -95,6 +102,11 @@ class LengthScorer(ScorerBase):
             f"{self._score_id}_score": [len(answer) for answer in ia_list["answer"]],
             f"{self._score_id}_model_id": ["rule"] * len(ia_list["answer"])
         }
+
+    def score(self, instructanswer_dataset: Dataset) -> Dataset:
+        instructanswer_dataset = instructanswer_dataset.map(self._batch_predict, batched=True,
+                                                            desc=self.__class__.__name__)
+        return instructanswer_dataset
 
 
 class ScorerPipeline:

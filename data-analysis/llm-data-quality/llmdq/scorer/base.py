@@ -1,30 +1,15 @@
 from typing import List, Dict
 from abc import ABC, abstractmethod
+from tqdm import tqdm
 from transformers import pipeline
+from transformers.pipelines.pt_utils import KeyDataset
 from datasets import Dataset
 
 
 class ScorerBase(ABC):
     @abstractmethod
-    def _batch_predict(self, ia_list: Dict[str, List]) -> Dict[str, List]:
-        """
-        Input:
-        {
-            "instruct": ["Hi!", "How are you?"],
-            "answer": ["Yo!", "Hey, how are you?"]
-        }
-        Output:
-        {
-            "SCORE_ID_score": [0.9, 0.8]
-            "SCORE_ID_model_id": ["model1", "model1"]
-        }
-        """
-        pass
-
     def score(self, instructanswer_dataset: Dataset) -> Dataset:
-        instructanswer_dataset = instructanswer_dataset.map(self._batch_predict, batched=True,
-                                                            desc=self.__class__.__name__)
-        return instructanswer_dataset
+        pass
 
 
 class HFPipelineScorerBase(ScorerBase):
@@ -45,16 +30,23 @@ class HFPipelineScorerBase(ScorerBase):
         """Convert classifier output into float to cater for different output in HF model hub"""
         pass
 
-    def _batch_predict(self, ia_list: Dict[str, List]) -> Dict[str, List]:
+    def _batch_preprocessing(self, ia_list: Dict[str, List]) -> Dict[str, List]:
         text_input = [self.input_preprocessing(instruct, answer)
                       for instruct, answer in zip(ia_list["instruct"], ia_list["answer"])]
-        output = self._model(text_input, max_length=self._max_length, truncation=True)
-        return {
-            f"{self._score_id}_score": list(map(self.score_processing, output)),
-            f"{self._score_id}_model_id": [self._model_id] * len(output)
-        }
+        return {"text": text_input}
 
     def score(self, instructanswer_dataset: Dataset) -> Dataset:
-        instructanswer_dataset = instructanswer_dataset.map(self._batch_predict, batched=True, batch_size=self._batch_size,
-                                                            desc=self.__class__.__name__)
+        """
+        Preprocessing uses the map function in Dataset
+        Model inferencing follows the best practice of https://huggingface.co/docs/transformers/main_classes/pipelines#pipeline-batching
+        """
+        instructanswer_dataset = instructanswer_dataset.map(self._batch_preprocessing, batched=True,
+                                                            desc=f"{self.__class__.__name__}_preprocessing")
+        output = []
+        for out in tqdm(self._model(KeyDataset(instructanswer_dataset, "text"),
+                                    batch_size=self._batch_size, max_length=self._max_length, truncation=True),
+                        total=len(instructanswer_dataset), desc=self.__class__.__name__):
+            output.append(self.score_processing(out))
+        instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_score", output)
+        instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_model_id", [self._model_id] * len(output))
         return instructanswer_dataset
