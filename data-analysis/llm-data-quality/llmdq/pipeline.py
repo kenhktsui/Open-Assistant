@@ -18,6 +18,13 @@ lg.addHandler(handler)
 
 
 def llmdq_pipeline(data: Dataset, config: Config) -> Tuple[Dataset, Dataset]:
+    # sanity check and sort text length for performance optimisation
+    data = data.filter(lambda x: x['answer'], desc="Filtering empty answer")
+    data_with_len = data.map(lambda x: {"len": [len(i) + len(a) for i, a in zip(x["instruct"], x["answer"])]},
+                             batched=True, desc="Calculating text len")
+    data_with_len = data_with_len.sort(column="len")
+    data = data_with_len.remove_columns("len")
+
     lg.info("Scoring has started")
 
     _obj_map = instantiate_class_from_config(config)
