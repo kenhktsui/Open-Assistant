@@ -115,7 +115,7 @@ with open('test_data/test_config_gpu.yaml') as f:
     config = Config(**yaml.safe_load(f))
 
 dataset = load_dataset('marianna13/random_dataset')
-dataset = dataset.rename_columns({"question": "instruct"})
+dataset = dataset['train'].rename_columns({"question": "instruct"})
 clustered_data, removed_dataset = llmdq_pipeline(dataset, config)
 ```
 #### running individual component
@@ -126,7 +126,7 @@ from llmdq.clustering import ClusteringPipeline, SemanticKmeansClustering
 
 
 dataset = load_dataset('marianna13/random_dataset')
-dataset = dataset.rename_columns({"question": "instruct"})
+dataset = dataset['train'].rename_columns({"question": "instruct"})
 
 
 clusteringpipe = ClusteringPipeline()

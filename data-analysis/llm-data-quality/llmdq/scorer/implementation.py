@@ -36,6 +36,11 @@ class PerplexityScorer(ScorerBase):
             f"{self._score_id}_model_id": [self._model_id] * len(output['perplexities'])
         }
 
+    def score(self, instructanswer_dataset: Dataset) -> Dataset:
+        instructanswer_dataset = instructanswer_dataset.map(self._batch_predict, batched=True, batch_size=self._batch_size,
+                                                            desc=self.__class__.__name__)
+        return instructanswer_dataset
+
 
 class ToxicityScorer(HFPipelineScorerBase):
     def __init__(self, score_id, model_id, task="text-classification", batch_size=8, max_length=1024, top_k=None, device=-1):
