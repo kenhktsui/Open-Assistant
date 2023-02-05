@@ -43,7 +43,7 @@ class SemanticKmeansClustering(ClusteringBase):
                       desc=self.__class__.__name__,
                       total=len(instructanswer_dataset)):
             text = [i + "\n" + a for i, a in zip(d['instruct'], d['answer'])]
-            inputs = self._tokenizer(text, padding=False, truncation=True, return_tensors="pt").to(self._device_pt)
+            inputs = self._tokenizer(text, padding=True, truncation=True, return_tensors="pt").to(self._device_pt)
             embed = self._model(**inputs)
             embed_list.append(embed.pooler_output.cpu().detach().numpy())  # use pooled output
 
