@@ -35,6 +35,7 @@ class PerplexityScorer(ScorerBase):
                                                             desc=f"{self.__class__.__name__}_preprocessing")
         output = self._perplexity.compute(data=instructanswer_dataset['text'], model_id=self._model_id,
                         batch_size=self._batch_size, max_length=self._max_length)
+        instructanswer_dataset = instructanswer_dataset.remove_columns("text")
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_score", output['perplexities'])
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_model_id", [self._model_id] * len(output['perplexities']))
         return instructanswer_dataset
@@ -82,6 +83,7 @@ class ContradictionScorer(HFPipelineScorerBase):
                                     batch_size=self._batch_size, max_length=self._max_length),
                         total=len(instructanswer_dataset), desc=self.__class__.__name__):
             output.append(self.score_processing(out))
+        instructanswer_dataset = instructanswer_dataset.remove_columns("text")
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_score", output)
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_model_id", [self._model_id] * len(output))
         return instructanswer_dataset

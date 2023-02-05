@@ -1,4 +1,3 @@
-from typing import List, Dict
 from abc import ABC, abstractmethod
 from tqdm import tqdm
 from transformers import pipeline
@@ -42,6 +41,8 @@ class HFPipelineScorerBase(ScorerBase):
                                     batch_size=self._batch_size, max_length=self._max_length, truncation=True),
                         total=len(instructanswer_dataset), desc=self.__class__.__name__):
             output.append(self.score_processing(out))
+
+        instructanswer_dataset = instructanswer_dataset.remove_columns("text")
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_score", output)
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_model_id", [self._model_id] * len(output))
         return instructanswer_dataset
