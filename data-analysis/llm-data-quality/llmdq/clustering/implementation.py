@@ -1,3 +1,5 @@
+from tqdm import tqdm
+from typing import Iterable
 import numpy as np
 import logging
 from transformers import AutoTokenizer, AutoModel
@@ -30,24 +32,22 @@ class SemanticKmeansClustering(ClusteringBase):
         self._niter = niter
         self._sampling_rate = sample_rate
 
-    def _get_embedding(self, instructanswer_dataset: Dataset) -> np.ndarray:
-        def _batch_predict(ia_data):
-            text_input = [instruct + '\n' + answer
-                          for instruct, answer in zip(ia_data["instruct"], ia_data["answer"])]
-            tokens = self._tokenizer(text_input,
-                                     padding=True,
-                                     truncation=True,
-                                     return_tensors="pt")
-            output = self._model(**tokens).pooler_output.cpu().detach().numpy().astype('float32')
-            return {
-                f"embeddings": output
-            }
+    def _batching(self, iterable: list) -> Iterable:
+        length = len(iterable)
+        for ndx in range(0, length, self._batch_size):
+            yield iterable[ndx:min(ndx + self._batch_size, length)]
 
-        ds_with_embeddings = instructanswer_dataset.map(_batch_predict,
-                                                        desc=self.__class__.__name__,
-                                                        batched=True,
-                                                        batch_size=self._batch_size)
-        embed = np.vstack(ds_with_embeddings["embeddings"])
+    def _get_embedding(self, instructanswer_dataset: Dataset) -> np.ndarray:
+        embed_list = []
+        for d in tqdm(self._batching(instructanswer_dataset),
+                      desc=self.__class__.__name__,
+                      total=len(instructanswer_dataset)):
+            text = [i + "\n" + a for i, a in zip(d['instruct'], d['answer'])]
+            inputs = self._tokenizer(text, padding=False, truncation=True, return_tensors="pt").to(self._device_pt)
+            embed = self._model(**inputs)
+            embed_list.append(embed.pooler_output.cpu().detach().numpy())  # use pooled output
+
+        embed = np.vstack(embed_list)
 
         # normalised with l2-norm
         embed_l2 = np.atleast_1d(np.linalg.norm(embed, ord=2, axis=-1))
@@ -74,7 +74,7 @@ class SemanticKmeansClustering(ClusteringBase):
                 sampled_index.update(np.random.choice(cluster_member,
                                                       size=int(len(cluster_member) * self._sampling_rate),
                                                       replace=False).tolist())
-        return instructanswer_dataset.select(list(sampled_index), desc="Sampling dataset after SemanticKmeansClustering")
+        return instructanswer_dataset.select(list(sampled_index))
 
     def run(self, instructanswer_dataset: Dataset) -> Dataset:
         if len(instructanswer_dataset) <= self._n_cluster:
