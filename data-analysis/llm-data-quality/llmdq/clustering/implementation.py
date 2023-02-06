@@ -41,7 +41,7 @@ class SemanticKmeansClustering(ClusteringBase):
         embed_list = []
         for d in tqdm(self._batching(instructanswer_dataset),
                       desc=self.__class__.__name__,
-                      total=len(instructanswer_dataset)):
+                      total=len(instructanswer_dataset)//self._batch_size+1):
             text = [i + "\n" + a for i, a in zip(d['instruct'], d['answer'])]
             inputs = self._tokenizer(text, padding=True, truncation=True, return_tensors="pt").to(self._device_pt)
             embed = self._model(**inputs)
