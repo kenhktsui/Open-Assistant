@@ -23,6 +23,12 @@ scorer:
   batch_size: 8
   max_length: 512
   device: 0
+- _impl_: ReplacedTokenScorer
+  score_id: replacedtoken
+  model_id: google/electra-large-discriminator
+  batch_size: 8
+  max_length: 512
+  device: 0
 - _impl_: LengthScorer
   score_id: length
 
@@ -39,6 +45,9 @@ scorefilter:
     direction: le
   - score_id: contradiction
     threshold: 0.5
+    direction: le
+  - score_id: replacedtoken
+    threshold: 0.06
     direction: le
   - score_id: length
     threshold: 2000
