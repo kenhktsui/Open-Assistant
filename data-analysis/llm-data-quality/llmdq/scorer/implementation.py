@@ -1,9 +1,11 @@
-from typing import Iterable, List
+from typing import Iterable, List, Tuple, Optional
 from tqdm import tqdm
 from evaluate import load
 from datasets import Dataset
 from transformers.pipelines.pt_utils import KeyDataset
 from transformers import ElectraForPreTraining, ElectraTokenizerFast
+from flair.data import Sentence
+from flair.models import SequenceTagger
 import torch
 import numpy as np
 from llmdq.scorer.base import ScorerBase, HFPipelineScorerBase
@@ -99,20 +101,71 @@ class ReplacedTokenScorer(ScorerBase):
         self._model_id = model_id
         self._discriminator = ElectraForPreTraining.from_pretrained(model_id)
         self._tokenizer = ElectraTokenizerFast.from_pretrained(model_id)
+        self._ner_model = SequenceTagger.load("flair/ner-english-ontonotes-large")
         self._max_length = max_length
         self._batch_size = batch_size
         self._device = device
         self._device_pt = f"cuda:{self._device}" if self._device >= 0 else "cpu"
         self._discriminator.to(self._device_pt)
 
-    def _run_discriminator(self, text_batch: List[str]):
+    def _run_ner(self, text_batch: List[str]) -> List[Sentence]:
+        text_batch = [Sentence(t) for t in text_batch]
+        self._ner_model.predict(text_batch, mini_batch_size=self._batch_size)
+        return text_batch
+
+    def _run_discriminator(self, text_batch: List[str]) -> Tuple[List[List[float]], List[List[int]]]:
         prob_list = []
         inputs = self._tokenizer(text_batch, return_tensors="pt", truncation=True, padding=True,
-                                 max_length=self._max_length).to(self._device_pt)
+                                 max_length=self._max_length, return_offsets_mapping=True).to(self._device_pt)
+        offset_mapping = inputs.pop("offset_mapping")
+        offset_mapping = [i for i in offset_mapping.to('cpu').tolist() if i != [0, 0]]
         discriminator_outputs_real = self._discriminator(**inputs)
         for prob in torch.sigmoid(discriminator_outputs_real.logits).cpu().detach().tolist():
-            prob_list.append(np.mean(prob))
-        return prob_list
+            prob_list.append(prob)
+
+        return prob_list, offset_mapping
+
+    def _get_entity_score(self, text_batch: List[str]) -> List[float]:
+        """
+        The score is calculated as max{score_entity} if entity is identified else 0.0.
+        Effectively it makes the downstream filter only applies on text with entity.
+        """
+
+        ner_result = self._run_ner(text_batch)
+        score_list, offset_mapping = self._run_discriminator(text_batch)
+
+        def linear_search(target: Tuple[int, int], offset: List[List[int]]) -> Tuple[Optional[int], Optional[int]]:
+            """
+            Given target: [3, 7] and offset [[0, 2], [2, 3], [3, 5], [5, 7], [7, 9]],
+            return starting index and ending index of [3, 7] in offset which is 2, 3
+            """
+            start_idx, end_idx = None, None
+            target_s, target_e = target
+            for i, o in enumerate(offset):
+                if o[0] == target_s:
+                    start_idx = i
+            for i, o in enumerate(offset):
+                if o[1] == target_e:
+                    end_idx = i
+            return start_idx, end_idx
+
+        # based on ner result, and token offset mapping, map the score to named entities and calclulate entity score
+        score_dict_list = []
+        for sent, score, offset in zip(ner_result, score_list, offset_mapping):
+            score_dict = {}
+            for t in sent.get_spans('ner'):
+                score_idx = linear_search((t.start_position, t.end_position), offset)
+                if t.tag not in score_dict:
+                    score_dict[t.tag] = []
+                if score_idx[0] is not None and score_idx[1] is not None:
+                    score_dict[t.tag].append(np.mean([i for i in score[score_idx[0]: score_idx[1] + 1]]))
+
+            for t in score_dict:
+                score_dict[t] = np.mean(score_dict[t])
+
+            score_dict_list.append(score_dict)
+
+        return [max(score_dict.values()) if score_dict else 0.0 for score_dict in score_dict_list]
 
     def _batching(self, iterable: list) -> Iterable:
         length = len(iterable)
@@ -124,7 +177,7 @@ class ReplacedTokenScorer(ScorerBase):
         for d in tqdm(self._batching(instructanswer_dataset),
                       desc=self.__class__.__name__,
                       total=len(instructanswer_dataset)//self._batch_size+1):
-            output.extend(self._run_discriminator(d["answer"]))
+            output.extend(self._get_entity_score(d["answer"]))
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_score", output)
         instructanswer_dataset = instructanswer_dataset.add_column(f"{self._score_id}_model_id", [self._model_id] * len(output))
         return instructanswer_dataset
