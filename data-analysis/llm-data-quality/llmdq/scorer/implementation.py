@@ -109,9 +109,16 @@ class ReplacedTokenScorer(ScorerBase):
         self._discriminator.to(self._device_pt)
 
     def _run_ner(self, text_batch: List[str]) -> List[Sentence]:
-        text_batch = [Sentence(t) for t in text_batch]
-        self._ner_model.predict(text_batch, mini_batch_size=self._batch_size)
-        return text_batch
+        setence_batch = []
+        for t in text_batch:
+            try:
+                setence_batch.append(Sentence(t))
+            except ValueError:
+                # flair has a bug that has to be caught, replaced with empty string.
+                # Sentence("ʼin's")
+                setence_batch.append(Sentence(""))
+        self._ner_model.predict(setence_batch, mini_batch_size=self._batch_size)
+        return setence_batch
 
     def _run_discriminator(self, text_batch: List[str]) -> Tuple[List[List[float]], List[List[int]]]:
         prob_list = []
