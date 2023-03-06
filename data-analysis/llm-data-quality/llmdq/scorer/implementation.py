@@ -109,10 +109,14 @@ class ReplacedTokenScorer(ScorerBase):
         self._discriminator.to(self._device_pt)
 
     def _run_ner(self, text_batch: List[str]) -> List[Sentence]:
+        chr_len = self._max_length * 6  # expect a token has six character
         setence_batch = []
         for t in text_batch:
             try:
-                setence_batch.append(Sentence(t))
+                # truncate flair sentence to approximately 512 tokens to avoid OOM in ner model
+                _t_split = t.split("")
+                n_space = len(_t_split) - 1 if len(_t_split) > 1 else 0
+                setence_batch.append(Sentence(t[:chr_len + n_space]))
             except ValueError:
                 # flair has a bug that has to be caught, replaced with empty string.
                 # Sentence("ʼin's")
