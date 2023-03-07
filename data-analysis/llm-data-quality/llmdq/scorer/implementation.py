@@ -9,6 +9,11 @@ from flair.models import SequenceTagger
 import torch
 import numpy as np
 from llmdq.scorer.base import ScorerBase, HFPipelineScorerBase
+import warnings
+
+
+warnings.filterwarnings("ignore")
+warnings.simplefilter('ignore')
 
 
 class RewardModelScorer(HFPipelineScorerBase):
