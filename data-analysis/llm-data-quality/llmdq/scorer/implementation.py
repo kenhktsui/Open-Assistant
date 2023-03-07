@@ -118,7 +118,6 @@ class ReplacedTokenScorer(ScorerBase):
         for t in text_batch:
             try:
                 # truncate flair sentence to approximately 512 tokens to avoid OOM in ner model
-                _t_split = t.split("")
                 _t_split = t.split(" ")
                 n_space = len(_t_split) - 1 if len(_t_split) > 1 else 0
                 setence_batch.append(Sentence(t[:chr_len + n_space]))
